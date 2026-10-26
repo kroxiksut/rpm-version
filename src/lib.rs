@@ -316,17 +316,15 @@ impl<'a> From<(&'a str, &'a str, &'a str)> for Evr<'a> {
     }
 }
 
+/// Two EVRs are equal when they compare as equal, e.g. `1.01-1` and `1.1-1`, or `1.2.3-45`
+/// and `0:1.2.3-45`.
 impl PartialEq for Evr<'_> {
-    #[allow(clippy::comparison_to_empty)]
     fn eq(&self, other: &Self) -> bool {
-        ((self.epoch == other.epoch)
-            || (self.epoch == "" && other.epoch == "0")
-            || (self.epoch == "0" && other.epoch == ""))
-            && self.version == other.version
-            && self.release == other.release
+        self.cmp(other) == Ordering::Equal
     }
 }
 
+/// Hashes the normalized form that the comparison uses, so that equal EVRs hash the same.
 impl Hash for Evr<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         let epoch = if self.epoch.is_empty() {
@@ -334,9 +332,9 @@ impl Hash for Evr<'_> {
         } else {
             &self.epoch
         };
-        epoch.hash(state);
-        self.version.hash(state);
-        self.release.hash(state);
+        for value in [epoch, &self.version, &self.release] {
+            encode_version(value, |bytes| state.write(bytes));
+        }
     }
 }
 
@@ -604,8 +602,24 @@ impl fmt::Display for Requirement<'_> {
 mod test {
     use super::*;
 
+    fn hash_of<T: Hash>(val: &T) -> u64 {
+        let mut h = std::hash::DefaultHasher::new();
+        val.hash(&mut h);
+        h.finish()
+    }
+
+    /// Helper: assert that `==` and `Hash` agree with the expected ordering,
+    /// as the contracts of `Ord` and `Hash` require
+    fn assert_eq_agrees_with_ord<T: Hash + Eq + fmt::Debug>(a: &T, b: &T, expected: Ordering) {
+        assert_eq!(a == b, expected == Ordering::Equal, "{a:?} == {b:?}");
+        if expected == Ordering::Equal {
+            assert_eq!(hash_of(a), hash_of(b), "hash_of({a:?}) vs hash_of({b:?})");
+        }
+    }
+
     /// Helper: assert that both compare_version_string and version_sortkey
-    /// produce the expected ordering (cross-validates both implementations)
+    /// produce the expected ordering (cross-validates both implementations),
+    /// and that Evr equality agrees with it
     fn assert_ver_order(a: &str, b: &str, expected: Ordering) {
         assert_eq!(
             compare_version_string(a, b),
@@ -617,10 +631,12 @@ mod test {
             expected,
             "version_sortkey({a:?}) vs version_sortkey({b:?})"
         );
+        assert_eq_agrees_with_ord(&Evr::new("", a, "1"), &Evr::new("", b, "1"), expected);
     }
 
     /// Helper: assert that both Evr::cmp and Evr::sortkey produce the expected
-    /// ordering (cross-validates both implementations)
+    /// ordering (cross-validates both implementations), and that Evr equality
+    /// agrees with it
     fn assert_evr_order(a: Evr, b: Evr, expected: Ordering) {
         assert_eq!(a.cmp(&b), expected, "Evr::cmp({a:?}, {b:?})");
         assert_eq!(
@@ -628,6 +644,7 @@ mod test {
             expected,
             "Evr::sortkey({a:?}) vs Evr::sortkey({b:?})"
         );
+        assert_eq_agrees_with_ord(&a, &b, expected);
     }
 
     /// Test that NEVRAs are printed as expected
@@ -1070,14 +1087,6 @@ mod test {
     /// Test that Hash is consistent with PartialEq (equal values must hash the same)
     #[test]
     fn test_evr_hash_consistency() {
-        use std::hash::{DefaultHasher, Hash, Hasher};
-
-        fn hash_of<T: Hash>(val: &T) -> u64 {
-            let mut h = DefaultHasher::new();
-            val.hash(&mut h);
-            h.finish()
-        }
-
         // empty epoch and "0" epoch are equal, so must hash the same
         let evr1 = Evr::parse("1.2.3-45");
         let evr2 = Evr::parse("0:1.2.3-45");
@@ -1093,17 +1102,31 @@ mod test {
         assert_ne!(hash_of(&evr1), hash_of(&evr3));
     }
 
+    /// Test that EVRs which compare as equal are equal, so that ordered and
+    /// hashed collections agree on which EVRs are duplicates
+    #[test]
+    fn test_evr_eq_consistent_with_ord() {
+        use std::collections::{BTreeSet, HashSet};
+
+        for (a, b) in [
+            ("1.01-1", "1.1-1"),
+            ("1.0-1", "1_0-1"),
+            ("1.0-1.fc40", "1.0-1fc40"),
+            ("00:1.0-1", "1.0-1"),
+        ] {
+            let (a, b) = (Evr::parse(a), Evr::parse(b));
+            assert_evr_order(a.clone(), b.clone(), Ordering::Equal);
+
+            let btree_set: BTreeSet<_> = [a.clone(), b.clone()].into_iter().collect();
+            let hash_set: HashSet<_> = [a, b].into_iter().collect();
+            assert_eq!(btree_set.len(), 1, "{btree_set:?}");
+            assert_eq!(hash_set.len(), 1, "{hash_set:?}");
+        }
+    }
+
     /// Test that Nevra Hash is consistent with PartialEq
     #[test]
     fn test_nevra_hash_consistency() {
-        use std::hash::{DefaultHasher, Hash, Hasher};
-
-        fn hash_of<T: Hash>(val: &T) -> u64 {
-            let mut h = DefaultHasher::new();
-            val.hash(&mut h);
-            h.finish()
-        }
-
         let nevra1 = Nevra::parse("foo-1.2.3-45.noarch");
         let nevra2 = Nevra::parse("foo-0:1.2.3-45.noarch");
         assert_eq!(nevra1, nevra2);

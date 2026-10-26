@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+- `Evr` equality and hashing now agree with its ordering: EVRs that compare as equal, such as `1.01-1` and `1.1-1`, are `==` and hash the same. Previously `==` compared the strings, so `BTreeSet` and `HashSet` disagreed about duplicates
+  - Also applies to `Nevra`, `Requirement` and the Python API
+
 ## 0.5.1
 
 - Bump PyO3 dependency version

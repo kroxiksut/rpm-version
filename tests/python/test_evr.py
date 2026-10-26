@@ -52,6 +52,15 @@ class TestEvr:
         assert a == b
         assert not (a != b)
 
+    def test_equality_follows_ordering(self):
+        """EVRs that RPM sorts as equal, such as 1.01-1 and 1.1-1, are equal and hash the same."""
+        a = Evr.parse("1.01-1")
+        b = Evr.parse("1.1-1")
+        assert not (a < b) and not (a > b)
+        assert a == b
+        assert hash(a) == hash(b)
+        assert len({a, b}) == 1
+
     def test_epoch_comparison(self):
         a = Evr.parse("1:1.0-1")
         b = Evr.parse("2:1.0-1")
