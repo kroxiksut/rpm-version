@@ -1000,6 +1000,26 @@ mod test {
         assert_ver_order("20240521", "202405210", Ordering::Less);
     }
 
+    /// Test that numeric segments too long for the sortkey's length byte still
+    /// sort by their value
+    #[test]
+    fn test_version_comparison_long_numeric_segments() {
+        let digits = |n: usize| "1".repeat(n);
+
+        assert_ver_order(&digits(256), "2", Ordering::Greater);
+        assert_ver_order(&digits(255), &digits(256), Ordering::Less);
+        assert_ver_order(&"9".repeat(255), &digits(256), Ordering::Less);
+        assert_ver_order(&digits(256), &digits(511), Ordering::Less);
+        assert_ver_order(&digits(300), &digits(300), Ordering::Equal);
+        assert_ver_order(&format!("0{}", digits(300)), &digits(300), Ordering::Equal);
+        assert_ver_order(&format!("1.{}", digits(256)), "1.2", Ordering::Greater);
+        assert_ver_order(
+            &format!("{}a", digits(256)),
+            &digits(256),
+            Ordering::Greater,
+        );
+    }
+
     /// Test behavior of tilde and caret operators
     #[test]
     fn test_version_comparison_tilde_and_caret() {

@@ -42,7 +42,11 @@
 //!     Leading zeros are stripped. The length byte sorts first, so longer digit
 //!     strings (= larger numbers) always sort after shorter ones. Within the
 //!     same length, digit characters compare lexicographically, which is correct
-//!     for same-length decimal integers.
+//!     for same-length decimal integers. A segment of more than 255 digits,
+//!     whose length doesn't fit the byte, uses \xff \xff + its length as an
+//!     8-byte big-endian integer instead. A 255-digit segment has \xff followed
+//!     by a digit, which is lower than \xff, so longer segments still sort
+//!     after it.
 //!
 //! Each version/release component ends with \x02 (end-of-version). When two
 //! versions are equal, the comparison naturally falls through the end marker
@@ -199,7 +203,14 @@ pub(crate) fn encode_version(ver: &str, mut emit: impl FnMut(&[u8])) {
                 .position(|&c| c != b'0')
                 .map(|i| &segment[i..])
                 .unwrap_or(b"");
-            emit(&[0x05, stripped.len() as u8]);
+            emit(&[0x05]);
+            match u8::try_from(stripped.len()) {
+                Ok(digit_count) => emit(&[digit_count]),
+                Err(_) => {
+                    emit(&[0xff, 0xff]);
+                    emit(&(stripped.len() as u64).to_be_bytes());
+                }
+            }
             emit(stripped);
             emit(&[0x00]);
         } else {
