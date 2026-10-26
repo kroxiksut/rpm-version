@@ -178,9 +178,14 @@ impl PartialOrd for Nevra<'_> {
     }
 }
 
+/// Names and arches are compared like versions, so that e.g. `python3.9` sorts before
+/// `python3.11`. Names or arches that this considers equal but that are different strings, such
+/// as `foo-bar` and `foo_bar`, are then ordered by the strings themselves, so that only equal
+/// NEVRAs compare as equal.
 impl Ord for Nevra<'_> {
     fn cmp(&self, other: &Self) -> Ordering {
-        let name_cmp = compare_version_string(&self.name, &other.name);
+        let name_cmp = compare_version_string(&self.name, &other.name)
+            .then_with(|| self.name.cmp(&other.name));
         if name_cmp != Ordering::Equal {
             return name_cmp;
         }
@@ -190,7 +195,7 @@ impl Ord for Nevra<'_> {
             return evr_cmp;
         }
 
-        compare_version_string(&self.arch, &other.arch)
+        compare_version_string(&self.arch, &other.arch).then_with(|| self.arch.cmp(&other.arch))
     }
 }
 
@@ -1134,6 +1139,39 @@ mod test {
 
         let nevra3 = Nevra::parse("foo-1:1.2.3-45.noarch");
         assert_ne!(hash_of(&nevra1), hash_of(&nevra3));
+    }
+
+    /// Test that NEVRAs compare as equal only when they are equal: names or
+    /// arches that differ only in separators belong to different packages
+    #[test]
+    fn test_nevra_ord_consistent_with_eq() {
+        use std::collections::{BTreeSet, HashSet};
+
+        for (a, b, expected) in [
+            (
+                "foo-bar-1.0-1.noarch",
+                "foo_bar-1.0-1.noarch",
+                Ordering::Less,
+            ),
+            (
+                "libfoo++-1.0-1.x86_64",
+                "libfoo-1.0-1.x86_64",
+                Ordering::Greater,
+            ),
+            ("foo-1.0-1.x86_64", "foo-1.0-1.x86-64", Ordering::Greater),
+            ("foo-1.01-1.noarch", "foo-1.1-1.noarch", Ordering::Equal),
+        ] {
+            let (a, b) = (Nevra::parse(a), Nevra::parse(b));
+            assert_eq!(a.cmp(&b), expected, "Nevra::cmp({a:?}, {b:?})");
+            assert_eq!(b.cmp(&a), expected.reverse(), "Nevra::cmp({b:?}, {a:?})");
+            assert_eq_agrees_with_ord(&a, &b, expected);
+
+            let unique = if expected == Ordering::Equal { 1 } else { 2 };
+            let btree_set: BTreeSet<_> = [a.clone(), b.clone()].into_iter().collect();
+            let hash_set: HashSet<_> = [a, b].into_iter().collect();
+            assert_eq!(btree_set.len(), unique, "{btree_set:?}");
+            assert_eq!(hash_set.len(), unique, "{hash_set:?}");
+        }
     }
 
     #[cfg(feature = "serde")]

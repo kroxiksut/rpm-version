@@ -148,6 +148,14 @@ class TestNevra:
         b = Nevra.parse("foo-1.0-1.x86_64")
         assert a == b
 
+    def test_names_differing_in_separators(self):
+        """foo-bar and foo_bar are different packages, so they must not sort as equal."""
+        a = Nevra.parse("foo-bar-1.0-1.x86_64")
+        b = Nevra.parse("foo_bar-1.0-1.x86_64")
+        assert a != b
+        assert a < b
+        assert sorted([b, a]) == [a, b]
+
 
 class TestEvrSort:
     def test_basic_sort(self):

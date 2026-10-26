@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `Evr` equality and hashing now agree with its ordering: EVRs that compare as equal, such as `1.01-1` and `1.1-1`, are `==` and hash the same. Previously `==` compared the strings, so `BTreeSet` and `HashSet` disagreed about duplicates
   - Also applies to `Nevra`, `Requirement` and the Python API
+- `Nevra` no longer compares as equal when the names or arches differ only in separators, such as `foo-bar` and `foo_bar`: these are now ordered by the strings themselves. Previously they compared as equal but were not `==`
 
 ## 0.5.1
 
